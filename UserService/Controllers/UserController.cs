@@ -156,7 +156,8 @@ namespace UserService.Controllers
                     };
                     return BadRequest(response);
                 }
-                _applicationDbContext.Users.Remove(user);
+                user.ModifiedAt = DateTime.UtcNow;
+                user.Status = "D";
                 await _applicationDbContext.SaveChangesAsync();
 
                 return Ok(new ApiResponse<string>
