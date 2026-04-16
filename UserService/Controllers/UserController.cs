@@ -1,5 +1,10 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using UserService.Data;
 using UserService.Model;
 using UserService.Model.Request;
@@ -11,9 +16,11 @@ namespace UserService.Controllers
     public class UserController : Controller
     {
         private readonly ApplicationDbContext _applicationDbContext;
-        public UserController(ApplicationDbContext applicationDbContext)
+        private readonly IConfiguration _configuration;
+        public UserController(ApplicationDbContext applicationDbContext, IConfiguration configuration)
         {
             this._applicationDbContext = applicationDbContext;
+            _configuration = configuration;
         }
 
         [HttpGet]
@@ -176,6 +183,71 @@ namespace UserService.Controllers
                     Message = ex.Message
                 });
             }
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(LoginRequest request)
+        {
+            try
+            {
+                var user = await _applicationDbContext.Users
+                    .FirstOrDefaultAsync(x => x.Email == request.Email);
+
+                if (user == null || user.Password != request.Password)
+                {
+                    return Unauthorized(new ApiResponse<string>
+                    {
+                        Status = "ERROR",
+                        Data = null,
+                        Message = "Invalid email or password"
+                    });
+                }
+
+                var token = GenerateJwtToken(user);
+
+                return Ok(new ApiResponse<string>
+                {
+                    Status = "OK",
+                    Data = token,
+                    Message = "Login successful"
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ApiResponse<string>
+                {
+                    Status = "ERROR",
+                    Data = null,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private string GenerateJwtToken(User user)
+        {
+            var jwtSettings = _configuration.GetSection("Jwt");
+
+            var key = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtSettings["Key"])
+            );
+
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var claims = new[]
+            {
+                new Claim(ClaimTypes.Name, user.Email),
+                new Claim("UserId", user.Id.ToString())
+            };
+
+            var token = new JwtSecurityToken(
+                issuer: jwtSettings["Issuer"],
+                audience: jwtSettings["Audience"],
+                claims: claims,
+                expires: DateTime.Now.AddHours(1),
+                signingCredentials: creds
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
     }
 }
